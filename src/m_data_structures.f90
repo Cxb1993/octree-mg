@@ -242,6 +242,8 @@ module m_data_structures
      type(mg_comm_t)             :: comm_prolong
      !> Communication info for ghost cell filling
      type(mg_comm_t)             :: comm_ghostcell
+     !> Communication info for boundary conditions
+     type(mg_comm_t)             :: comm_phibc
 
      !> To store pre-defined boundary conditions per direction per variable
      type(mg_bc_t) :: bc(mg_num_neighbors, mg_max_num_vars)
@@ -251,7 +253,11 @@ module m_data_structures
      !> Type of grid geometry
      integer :: geometry_type = mg_cartesian
 
-     !> Whether the mean has to be subtracted from the multigrid solution
+     !> Whether boundary condition data has been stored
+     logical :: phi_bc_data_stored = .false.
+
+     !> Whether the mean has to be subtracted from the multigrid solution and
+     !> right-hand side
      logical  :: subtract_mean       = .false.
      !> Type of multigrid smoother
      integer  :: smoother_type       = mg_smoother_gs

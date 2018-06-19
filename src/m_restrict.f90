@@ -103,7 +103,7 @@ contains
        end do
 
        mg%buf(:)%i_recv = mg%comm_restrict%n_recv(:, lvl) * dsize
-       call sort_and_transfer_buffers(mg, dsize)
+       call sort_and_transfer_buffers(mg, dsize, .false.)
        mg%buf(:)%i_recv = 0
     end if
 

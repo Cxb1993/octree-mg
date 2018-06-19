@@ -62,9 +62,9 @@ contains
 
   !> Fill ghost cells at all grid levels
   subroutine mg_fill_ghost_cells(mg, iv)
-    type(mg_t)          :: mg
-    integer, intent(in) :: iv !< Index of variable
-    integer             :: lvl
+    type(mg_t), intent(inout) :: mg
+    integer, intent(in)       :: iv !< Index of variable
+    integer                   :: lvl
 
     do lvl = mg%lowest_lvl, mg%highest_lvl
        call mg_fill_ghost_cells_lvl(mg, lvl, iv)
@@ -106,7 +106,7 @@ contains
 
        ! Transfer data between processes
        mg%buf(:)%i_recv = mg%comm_ghostcell%n_recv(:, lvl) * dsize
-       call sort_and_transfer_buffers(mg, dsize)
+       call sort_and_transfer_buffers(mg, dsize, .false.)
 
        ! Set ghost cells to received data
        mg%buf(:)%i_recv = 0
@@ -205,15 +205,26 @@ contains
           call fill_refinement_bnd(mg, id, nb, nc, iv, dry_run)
        else if (.not. dry_run) then
           ! Physical boundary
-         if (associated(mg%bc(nb, iv)%boundary_cond)) then
-            call mg%bc(nb, iv)%boundary_cond(mg%boxes(id), nc, iv, &
-                 nb, bc_type, bc)
-            call box_set_gc(mg%boxes(id), nb, nc, iv, bc)
+          if (mg%phi_bc_data_stored .and. iv == mg_iphi) then
+             ! Copy the boundary conditions stored in the ghost cells of the
+             ! right-hand side
+             call box_get_gc(mg%boxes(id), nb, nc, mg_irhs, bc)
+             if (nb == 6) then
+                bc_type = mg_bc_dirichlet
+             else
+                bc_type = mg_bc_neumann
+             end if
           else
-             bc_type = mg%bc(nb, iv)%bc_type
-             call box_set_gc_scalar(mg%boxes(id), nb, nc, iv, &
-                     mg%bc(nb, iv)%bc_value)
+             if (associated(mg%bc(nb, iv)%boundary_cond)) then
+                call mg%bc(nb, iv)%boundary_cond(mg%boxes(id), nc, iv, &
+                     nb, bc_type, bc)
+             else
+                bc_type = mg%bc(nb, iv)%bc_type
+                bc = mg%bc(nb, iv)%bc_value
+             end if
           end if
+
+          call box_set_gc(mg%boxes(id), nb, nc, iv, bc)
           call bc_to_gc(mg, id, nc, iv, nb, bc_type)
        end if
     end do
@@ -514,37 +525,41 @@ contains
     end select
   end subroutine box_set_gc
 
-  subroutine box_set_gc_scalar(box, nb, nc, iv, gc)
-    type(mg_box_t), intent(inout) :: box
+  subroutine box_get_gc(box, nb, nc, iv, gc)
+    type(mg_box_t), intent(in) :: box
     integer, intent(in)        :: nb, nc, iv
-    real(dp), intent(in)       :: gc
+#if NDIM == 2
+    real(dp), intent(out)       :: gc(nc)
+#elif NDIM == 3
+    real(dp), intent(out)       :: gc(nc, nc)
+#endif
 
     select case (nb)
 #if NDIM == 2
     case (mg_neighb_lowx)
-       box%cc(0, 1:nc, iv)    = gc
+       gc = box%cc(0, 1:nc, iv)
     case (mg_neighb_highx)
-       box%cc(nc+1, 1:nc, iv) = gc
+       gc = box%cc(nc+1, 1:nc, iv)
     case (mg_neighb_lowy)
-       box%cc(1:nc, 0, iv)    = gc
+       gc = box%cc(1:nc, 0, iv)
     case (mg_neighb_highy)
-       box%cc(1:nc, nc+1, iv) = gc
+       gc = box%cc(1:nc, nc+1, iv)
 #elif NDIM == 3
     case (mg_neighb_lowx)
-       box%cc(0, 1:nc, 1:nc, iv)    = gc
+       gc = box%cc(0, 1:nc, 1:nc, iv)
     case (mg_neighb_highx)
-       box%cc(nc+1, 1:nc, 1:nc, iv) = gc
+       gc = box%cc(nc+1, 1:nc, 1:nc, iv)
     case (mg_neighb_lowy)
-       box%cc(1:nc, 0, 1:nc, iv)    = gc
+       gc = box%cc(1:nc, 0, 1:nc, iv)
     case (mg_neighb_highy)
-       box%cc(1:nc, nc+1, 1:nc, iv) = gc
+       gc = box%cc(1:nc, nc+1, 1:nc, iv)
     case (mg_neighb_lowz)
-       box%cc(1:nc, 1:nc, 0, iv)    = gc
+       gc = box%cc(1:nc, 1:nc, 0, iv)
     case (mg_neighb_highz)
-       box%cc(1:nc, 1:nc, nc+1, iv) = gc
+       gc = box%cc(1:nc, 1:nc, nc+1, iv)
 #endif
     end select
-  end subroutine box_set_gc_scalar
+  end subroutine box_get_gc
 
   subroutine bc_to_gc(mg, id, nc, iv, nb, bc_type)
     type(mg_t), intent(inout) :: mg

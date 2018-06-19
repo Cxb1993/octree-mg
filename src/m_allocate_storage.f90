@@ -30,6 +30,9 @@ contains
     deallocate(mg%comm_ghostcell%n_send)
     deallocate(mg%comm_ghostcell%n_recv)
 
+    deallocate(mg%comm_phibc%n_send)
+    deallocate(mg%comm_phibc%n_recv)
+
     do lvl = mg%lowest_lvl, mg%highest_lvl
        deallocate(mg%lvls(lvl)%ids)
        deallocate(mg%lvls(lvl)%leaves)
@@ -51,11 +54,13 @@ contains
     use m_ghost_cells, only: mg_ghost_cell_buffer_size
     use m_restrict, only: mg_restrict_buffer_size
     use m_prolong, only: mg_prolong_buffer_size
+    use m_phi_bc, only: mg_phi_bc_buffer_size
     type(mg_t), intent(inout) :: mg
     integer                   :: i, id, lvl, nc
-    integer                   :: n_send(0:mg%n_cpu-1, 3)
-    integer                   :: n_recv(0:mg%n_cpu-1, 3)
-    integer                   :: dsize(3)
+    integer, parameter        :: n_comm = 4
+    integer                   :: n_send(0:mg%n_cpu-1, n_comm)
+    integer                   :: n_recv(0:mg%n_cpu-1, n_comm)
+    integer                   :: dsize(n_comm)
     integer                   :: n_in, n_out, n_id
 
     if (.not. mg%tree_created) &
@@ -84,6 +89,8 @@ contains
          n_recv(:, 2), dsize(2))
     call mg_prolong_buffer_size(mg, n_send(:, 3), &
          n_recv(:, 3), dsize(3))
+    call mg_phi_bc_buffer_size(mg, n_send(:, 4), &
+         n_recv(:, 4), dsize(4))
 
     do i = 0, mg%n_cpu-1
        n_out = maxval(n_send(i, :) * dsize(:))

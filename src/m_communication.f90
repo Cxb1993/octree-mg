@@ -34,17 +34,26 @@ contains
     call mpi_comm_size(mg%comm, mg%n_cpu, ierr)
   end subroutine mg_comm_init
 
-  subroutine sort_and_transfer_buffers(mg, dsize)
+  subroutine sort_and_transfer_buffers(mg, dsize, set_irecv)
     use mpi
-    type(mg_t), intent(inout)    :: mg
-    integer, intent(in)          :: dsize
-    integer                      :: i, n_send, n_recv
-    integer                      :: send_req(mg%n_cpu)
-    integer                      :: recv_req(mg%n_cpu)
-    integer                      :: ierr
+    type(mg_t), intent(inout) :: mg
+    integer, intent(in)       :: dsize
+    logical, intent(in)       :: set_irecv !< Deduce how much to receive
+    integer                   :: i, n_send, n_recv
+    integer                   :: send_req(mg%n_cpu)
+    integer                   :: recv_req(mg%n_cpu)
+    integer                   :: i_recv(0:mg%n_cpu-1)
+    integer                   :: ierr
 
     n_send = 0
     n_recv = 0
+
+    if (set_irecv) then
+       call mpi_alltoall(mg%buf(:)%i_send, 1, MPI_INTEGER, &
+            i_recv, 1, MPI_INTEGER, mg%comm, ierr)
+    else
+       i_recv = mg%buf(:)%i_recv
+    end if
 
     do i = 0, mg%n_cpu - 1
        if (mg%buf(i)%i_send > 0) then
@@ -53,9 +62,9 @@ contains
           call mpi_isend(mg%buf(i)%send, mg%buf(i)%i_send, MPI_DOUBLE, &
                i, 0, mg%comm, send_req(n_send), ierr)
        end if
-       if (mg%buf(i)%i_recv > 0) then
+       if (i_recv(i) > 0) then
           n_recv = n_recv + 1
-          call mpi_irecv(mg%buf(i)%recv, mg%buf(i)%i_recv, MPI_DOUBLE, &
+          call mpi_irecv(mg%buf(i)%recv, i_recv(i), MPI_DOUBLE, &
                i, 0, mg%comm, recv_req(n_recv), ierr)
        end if
     end do
@@ -65,7 +74,7 @@ contains
 
   end subroutine sort_and_transfer_buffers
 
-  !> Sort send buffers according to the idbuf array
+  !> Sort send buffers according to the gc%ix array
   subroutine sort_sendbuf(gc, dsize)
     use m_mrgrnk
     type(mg_buf_t), intent(inout) :: gc

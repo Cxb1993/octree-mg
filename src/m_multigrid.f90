@@ -103,7 +103,7 @@ contains
 
     if (mg%subtract_mean) then
        ! For fully periodic solutions, the mean source term has to be zero
-       call subtract_mean(mg, mg_irhs)
+       call subtract_mean(mg, mg_irhs, .false.)
     end if
 
     do lvl = mg%lowest_lvl, mg%highest_lvl
@@ -152,7 +152,7 @@ contains
     if (mg%subtract_mean .and. .not. present(highest_lvl)) then
        ! Assume that this is a stand-alone call. For fully periodic solutions,
        ! ensure the mean source term is zero.
-       call subtract_mean(mg, mg_irhs)
+       call subtract_mean(mg, mg_irhs, .false.)
     end if
 
     min_lvl = mg%lowest_lvl
@@ -215,16 +215,17 @@ contains
 
     ! Subtract mean(phi) from phi
     if (mg%subtract_mean) then
-       call subtract_mean(mg, mg_iphi)
+       call subtract_mean(mg, mg_iphi, .true.)
     end if
 
     call mg_timer_end(mg%timers(timer_total))
   end subroutine mg_fas_vcycle
 
-  subroutine subtract_mean(mg, iv)
+  subroutine subtract_mean(mg, iv, ghost_cells)
     use mpi
     type(mg_t), intent(inout) :: mg
     integer, intent(in)       :: iv
+    logical, intent(in)       :: ghost_cells !< If true, also subtract from ghost cells
     integer                   :: i, id, lvl, nc, ierr
     real(dp)                  :: sum_iv, mean_iv, volume
 
@@ -242,8 +243,13 @@ contains
 
        do i = 1, size(mg%lvls(lvl)%my_ids)
           id = mg%lvls(lvl)%my_ids(i)
-          mg%boxes(id)%cc(DTIMES(:), iv) = &
-               mg%boxes(id)%cc(DTIMES(:), iv) - mean_iv
+          if (ghost_cells) then
+             mg%boxes(id)%cc(DTIMES(:), iv) = &
+                  mg%boxes(id)%cc(DTIMES(:), iv) - mean_iv
+          else
+             mg%boxes(id)%cc(DTIMES(1:nc), iv) = &
+                  mg%boxes(id)%cc(DTIMES(1:nc), iv) - mean_iv
+          end if
        end do
     end do
   end subroutine subtract_mean
@@ -283,37 +289,65 @@ contains
     end do
   end function max_residual_lvl
 
-  !   subroutine solve_coarse_grid(mg)
-  !     use m_fishpack
-  !     type(mg_t), intent(inout) :: mg
+! #if NDIM == 3
+!   subroutine solve_coarse_grid(mg)
+!     use poisson_solver
 
-  !     real(dp) :: rhs(DTIMES(mg%box_size))
-  !     real(dp) :: rmin(NDIM), rmax(NDIM)
-  !     integer  :: nc, nx(NDIM), my_boxes, total_boxes
+!     type(mg_t), intent(inout) :: mg
 
-  !     my_boxes    = size(mg%lvls(1)%my_ids)
-  !     total_boxes = size(mg%lvls(1)%ids)
-  !     nc          = mg%box_size
+!     real(dp) :: rhs(DTIMES(mg%box_size))
+!     real(dp) :: rmin(NDIM), rmax(NDIM), dr(NDIM)
+!     integer  :: nc, nx(NDIM), my_boxes, total_boxes
+!     character, parameter :: geocode = 'F'
+!     character, parameter :: datacode = 'G'
+!     integer, parameter :: itype_scf = 8
+!     integer, parameter :: ixc = 0
+!     real(dp), pointer     :: karray(:)
 
-  !     if (my_boxes == total_boxes) then
-  !        nx(:) = nc
-  !        rmin  = [DTIMES(0.0_dp)]
-  !        rmax  = mg%dr(1) * [DTIMES(nc)]
-  !        rhs   = mg%boxes(1)%cc(DTIMES(1:nc), mg_irhs)
+!     my_boxes    = size(mg%lvls(1)%my_ids)
+!     total_boxes = size(mg%lvls(1)%ids)
+!     nc          = mg%box_size
+!     nx(:) = 32
+!     dr(:) = 1.0_dp
 
-  ! #if NDIM == 2
-  !        call fishpack_2d(nx, rhs, mg%bc, rmin, rmax)
-  ! #elif NDIM == 3
-  !        call fishpack_3d(nx, rhs, mg%bc, rmin, rmax)
-  ! #endif
+!     call createKernel(geocode, nx(1), nx(2), nx(3), &
+!          dr(1), dr(2), dr(3), itype_scf, mg%my_rank, mg%n_cpu, karray)
 
-  !        mg%boxes(1)%cc(DTIMES(1:nc), mg_iphi) = rhs
-  !     else if (my_boxes > 0) then
-  !        error stop "Boxes at level 1 at different processors"
-  !     end if
+!     call PS_dim4allocation(geocode,datacode,mg%my_rank,mg%n_cpu, &
+!          nx(1),nx(2),nx(3),ixc,n3d,n3p,n3pi,i3xcsh,i3s)
 
-  !     call fill_ghost_cells_lvl(mg, 1)
-  !   end subroutine solve_coarse_grid
+!     ! Dimension for comparison in the global or distributed poisson solver
+!     i3sd=1
+!     ncomp=nx(3)
+
+!     call PSolver(geocode,datacode,mg%my_rank,mg%n_cpu, &
+!          nx(1),nx(2),nx(3),ixc,hx,hy,hz,&
+!          density(1,1,i3sd),karray,dummy,ehartree,&
+!          eexcu,vexcu,offset,.true.,1)
+!     ! Solver = PoisFFT_Solver3D([nx,ny,nz], &
+!     !      [Lx,Ly,Lz], [(PoisFFT_Periodic, i = 1,6)])
+
+!     !       if (my_boxes == total_boxes) then
+!     !          nx(:) = nc
+!     !          rmin  = [DTIMES(0.0_dp)]
+!     !          rmax  = mg%dr(1) * [DTIMES(nc)]
+!     !          rhs   = mg%boxes(1)%cc(DTIMES(1:nc), mg_irhs)
+
+!     ! #if NDIM == 2
+!     !          call fishpack_2d(nx, rhs, mg%bc, rmin, rmax)
+!     ! #elif NDIM == 3
+!     !          call fishpack_3d(nx, rhs, mg%bc, rmin, rmax)
+!     ! #endif
+
+!     !          mg%boxes(1)%cc(DTIMES(1:nc), mg_iphi) = rhs
+!     !       else if (my_boxes > 0) then
+!     !          error stop "Boxes at level 1 at different processors"
+!     !       end if
+
+!     !       call fill_ghost_cells_lvl(mg, 1)
+!     print *, "hi"
+!   end subroutine solve_coarse_grid
+! #endif
 
   ! Set rhs on coarse grid, restrict phi, and copy mg_iphi to mg_iold for the
   ! correction later
@@ -346,9 +380,9 @@ contains
        call mg%box_op(mg, id, nc_c, mg_irhs)
 
        ! Add the fine grid residual to rhs
-       mg%boxes(id)%cc(DTIMES(:), mg_irhs) = &
-            mg%boxes(id)%cc(DTIMES(:), mg_irhs) + &
-            mg%boxes(id)%cc(DTIMES(:), mg_ires)
+       mg%boxes(id)%cc(DTIMES(1:nc_c), mg_irhs) = &
+            mg%boxes(id)%cc(DTIMES(1:nc_c), mg_irhs) + &
+            mg%boxes(id)%cc(DTIMES(1:nc_c), mg_ires)
 
        ! Story a copy of phi
        mg%boxes(id)%cc(DTIMES(:), mg_iold) = &

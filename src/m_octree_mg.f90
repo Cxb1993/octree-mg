@@ -11,6 +11,7 @@ module m_octree_mg
   use m_multigrid
   use m_helmholtz
   use m_vhelmholtz
+  use m_phi_bc
 
   implicit none
   public
